@@ -1,0 +1,102 @@
+[
+  {
+    "id": "GF01",
+    "name": "Titanium White",
+    "brand": "Golden Fluid Acrylics",
+    "pigmentCode": "PW6",
+    "role": "White primary",
+    "hex": "#F2F0EC",
+    "lab": [95.2, -0.4, 1.8],
+    "opacity": "opaque"
+  },
+  {
+    "id": "GF02",
+    "name": "Carbon Black",
+    "brand": "Golden Fluid Acrylics",
+    "pigmentCode": "PBk7",
+    "role": "Black primary",
+    "hex": "#1A1A1A",
+    "lab": [6.8, 0.1, -0.2],
+    "opacity": "opaque"
+  },
+  {
+    "id": "GF03",
+    "name": "Quinacridone Magenta",
+    "brand": "Golden Fluid Acrylics",
+    "pigmentCode": "PR122",
+    "role": "Magenta primary",
+    "hex": "#D4005A",
+    "lab": [40.8, 66.1, -3.2],
+    "opacity": "transparent"
+  },
+  {
+    "id": "GF04",
+    "name": "Naphthol Red Light",
+    "brand": "Golden Fluid Acrylics",
+    "pigmentCode": "PR112",
+    "role": "Warm red / opaque orange range",
+    "hex": "#E83228",
+    "lab": [46.2, 59.4, 42.8],
+    "opacity": "opaque"
+  },
+  {
+    "id": "GF05",
+    "name": "Benzimidazolone Yellow Medium",
+    "brand": "Golden Fluid Acrylics",
+    "pigmentCode": "PY83",
+    "role": "Warm yellow",
+    "hex": "#F5B800",
+    "lab": [77.6, 8.2, 79.4],
+    "opacity": "semi-transparent"
+  },
+  {
+    "id": "GF06",
+    "name": "Benzimidazolone Yellow Light",
+    "brand": "Golden Fluid Acrylics",
+    "pigmentCode": "PY3",
+    "role": "Cool yellow",
+    "hex": "#FAE000",
+    "lab": [89.1, -7.8, 85.2],
+    "opacity": "semi-transparent"
+  },
+  {
+    "id": "GF07",
+    "name": "Phthalo Blue (Red Shade)",
+    "brand": "Golden Fluid Acrylics",
+    "pigmentCode": "PB15:1",
+    "role": "Warm blue (violet mixes)",
+    "hex": "#0C1E78",
+    "lab": [15.4, 26.8, -58.6],
+    "opacity": "transparent"
+  },
+  {
+    "id": "GF08",
+    "name": "Phthalo Blue (Green Shade)",
+    "brand": "Golden Fluid Acrylics",
+    "pigmentCode": "PB15:3",
+    "role": "Cool blue / cyan primary",
+    "hex": "#0D4F8B",
+    "lab": [32.1, 2.4, -47.8],
+    "opacity": "transparent"
+  },
+  {
+    "id": "GF09",
+    "name": "Phthalo Green (Blue Shade)",
+    "brand": "Golden Fluid Acrylics",
+    "pigmentCode": "PG7",
+    "role": "Cool green primary",
+    "hex": "#003C34",
+    "lab": [23.8, -30.4, 5.2],
+    "opacity": "transparent"
+  },
+  {
+    "id": "GF10",
+    "name": "Phthalo Green (Yellow Shade)",
+    "brand": "Golden Fluid Acrylics",
+    "pigmentCode": "PG36",
+    "role": "Warm green primary",
+    "hex": "#1E7028",
+    "lab": [42.3, -46.2, 30.8],
+    "opacity": "transparent"
+  }
+]
