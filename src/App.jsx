@@ -10,7 +10,7 @@ import SavedRecipes from './components/SavedRecipes';
 import PaintInventory from './components/PaintInventory';
 import CalibrationFlow from './components/CalibrationFlow';
 
-const ALL_IDS = basePaints.map(p => p.id);
+const CORE_IDS = basePaints.filter(p => !p.extended).map(p => p.id);
 const LS_RECIPES = 'paintmix_recipes';
 const LS_INVENTORY = 'paintmix_inventory';
 const LS_CALIBRATION = 'paintmix_calibration';
@@ -24,7 +24,7 @@ export default function App() {
   const [targetHex, setTargetHex] = useState('#4A90D9');
   const [batchSizeMl, setBatchSizeMl] = useState(0.5);
   const [technique, setTechnique] = useState('layer');
-  const [activePaintIds, setActivePaintIds] = useState(() => loadLS(LS_INVENTORY, ALL_IDS));
+  const [activePaintIds, setActivePaintIds] = useState(() => loadLS(LS_INVENTORY, CORE_IDS));
   const [recipe, setRecipe] = useState(null);
   const [solving, setSolving] = useState(false);
   const [savedRecipes, setSavedRecipes] = useState(() => loadLS(LS_RECIPES, []));
