@@ -33,9 +33,15 @@ function projectToSimplex(v) {
   return v.map(vi => Math.max(0, vi - theta));
 }
 
-// Generate a random point on the n-simplex
-function randomSimplex(n) {
-  const v = Array.from({ length: n }, () => -Math.log(Math.random() + 1e-10));
+// Seeded xorshift32 PRNG — makes restarts deterministic for a given target
+function seededRng(hexStr) {
+  let s = hexStr.split('').reduce((h, c) => (Math.imul(31, h) + c.charCodeAt(0)) >>> 0, 0) >>> 0 || 1;
+  return () => { s ^= s << 13; s ^= s >> 17; s ^= s << 5; return (s >>> 0) / 0x100000000; };
+}
+
+// Generate a random point on the n-simplex using the provided rng
+function randomSimplex(n, rng) {
+  const v = Array.from({ length: n }, () => -Math.log(rng() + 1e-10));
   const sum = v.reduce((a, b) => a + b, 0);
   return v.map(x => x / sum);
 }
@@ -129,6 +135,7 @@ export function solveMix(targetHex, activePaints, batchSizeMl) {
   let bestPaints = null;
   let bestDeltaE = Infinity;
   let bestPredictedHex = null;
+  const rng = seededRng(targetHex);
 
   const makeObjective = (paintHexes) => (f) => {
     const sum = f.reduce((a, b) => a + b, 0);
@@ -139,7 +146,7 @@ export function solveMix(targetHex, activePaints, batchSizeMl) {
   };
 
   for (let restart = 0; restart < 5; restart++) {
-    let fractions = randomSimplex(n);
+    let fractions = randomSimplex(n, rng);
 
     // Full optimization pass
     fractions = nelderMead(makeObjective(hexes), n, fractions);

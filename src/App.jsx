@@ -10,6 +10,7 @@ import RecipeCard from './components/RecipeCard';
 import SavedRecipes from './components/SavedRecipes';
 import PaintInventory from './components/PaintInventory';
 import CalibrationFlow from './components/CalibrationFlow';
+import ProgressionCard from './components/ProgressionCard';
 
 const CORE_IDS = basePaints.filter(p => !p.extended).map(p => p.id);
 const LS_RECIPES = 'paintmix_recipes';
@@ -60,29 +61,35 @@ export default function App() {
       solveTargetHex = chroma.lab(adjustedL, lab[1], lab[2]).hex();
     }
 
+    // Snapshot batch size so RecipeCard/ProgressionCard don't drift when the slider moves later
+    const solvedBatch = batchSizeMl;
+
     setTimeout(() => {
       if (progressionMode) {
         const targetLab = chroma(solveTargetHex).lab();
         const clamp = l => Math.max(5, Math.min(95, l));
 
-        const shadowLab  = shiftLabChroma([clamp(targetLab[0] - 15), targetLab[1], targetLab[2]], +5);
+        const shadowLab    = shiftLabChroma([clamp(targetLab[0] - 15), targetLab[1], targetLab[2]], +5);
         const highlightLab = shiftLabChroma([clamp(targetLab[0] + 15), targetLab[1], targetLab[2]], -5);
 
         const shadowHex    = chroma.lab(...shadowLab).hex();
         const highlightHex = chroma.lab(...highlightLab).hex();
 
-        const shadowRecipe    = solveMix(shadowHex,      activePaints, batchSizeMl);
-        const midtoneRecipe   = solveMix(solveTargetHex, activePaints, batchSizeMl);
-        const highlightRecipe = solveMix(highlightHex,   activePaints, batchSizeMl);
+        const shadowRecipe    = solveMix(shadowHex,      activePaints, solvedBatch);
+        const midtoneRecipe   = solveMix(solveTargetHex, activePaints, solvedBatch);
+        const highlightRecipe = solveMix(highlightHex,   activePaints, solvedBatch);
 
         setProgression({
-          shadow:    { recipe: shadowRecipe,    targetHex: shadowHex },
-          midtone:   { recipe: midtoneRecipe,   targetHex: solveTargetHex },
-          highlight: { recipe: highlightRecipe, targetHex: highlightHex },
+          shadow:      { recipe: shadowRecipe,    targetHex: shadowHex },
+          midtone:     { recipe: midtoneRecipe,   targetHex: solveTargetHex },
+          highlight:   { recipe: highlightRecipe, targetHex: highlightHex },
+          batchSizeMl: solvedBatch,
         });
-        setRecipe(midtoneRecipe);
+        setRecipe(null);
       } else {
-        setRecipe(solveMix(solveTargetHex, activePaints, batchSizeMl));
+        const result = solveMix(solveTargetHex, activePaints, solvedBatch);
+        if (result) result.batchSizeMl = solvedBatch;
+        setRecipe(result);
         setProgression(null);
       }
       setSolving(false);
@@ -112,14 +119,6 @@ export default function App() {
   const handleResetCalibration = (paintId) => {
     setCalibration(prev => { const next = { ...prev }; delete next[paintId]; return next; });
   };
-
-  // Lazy-load ProgressionCard only when needed
-  const [ProgressionCard, setProgressionCard] = useState(null);
-  useEffect(() => {
-    if (progressionMode && !ProgressionCard) {
-      import('./components/ProgressionCard').then(m => setProgressionCard(() => m.default));
-    }
-  }, [progressionMode, ProgressionCard]);
 
   return (
     <div className="min-h-screen bg-[#0F0F0F] text-[#E8E4DC]">
@@ -228,16 +227,22 @@ export default function App() {
               ))}
             </div>
 
-            {progressionMode && progression && ProgressionCard ? (
-              <ProgressionCard
-                progression={progression}
-                technique={technique}
-                batchSizeMl={batchSizeMl}
-                hobbyPaints={hobbyPaints}
-                onSave={handleSaveRecipe}
-              />
-            ) : progressionMode && progression && !ProgressionCard ? (
-              <p className="text-xs text-[#7A7670]">Loading…</p>
+            {progressionMode ? (
+              progression ? (
+                <ProgressionCard
+                  progression={progression}
+                  technique={technique}
+                  hobbyPaints={hobbyPaints}
+                  onSave={handleSaveRecipe}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-64 text-[#7A7670] gap-3">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                  <p className="text-sm text-center">Press Calculate Recipe to generate<br />shadow, midtone, and highlight</p>
+                </div>
+              )
             ) : (
               <RecipeCard
                 recipe={recipe}
