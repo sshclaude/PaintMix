@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
+import chroma from 'chroma-js';
 import { solveMix } from './solver';
 import basePaints from './data/basePaints.json';
 import hobbyPaints from './data/hobbyPaints.json';
@@ -20,6 +21,15 @@ function loadLS(key, fallback) {
   catch { return fallback; }
 }
 
+// Shift Lab chroma (C*) by deltaC while preserving hue angle
+function shiftLabChroma(lab, deltaC) {
+  const [L, a, b] = lab;
+  const C = Math.sqrt(a * a + b * b);
+  const newC = Math.max(0, C + deltaC);
+  const hue = Math.atan2(b, a);
+  return [L, newC * Math.cos(hue), newC * Math.sin(hue)];
+}
+
 export default function App() {
   const [targetHex, setTargetHex] = useState('#4A90D9');
   const [batchSizeMl, setBatchSizeMl] = useState(0.5);
@@ -29,29 +39,55 @@ export default function App() {
   const [solving, setSolving] = useState(false);
   const [savedRecipes, setSavedRecipes] = useState(() => loadLS(LS_RECIPES, []));
   const [calibration, setCalibration] = useState(() => loadLS(LS_CALIBRATION, {}));
-  const [panel, setPanel] = useState('recipes'); // 'recipes' | 'inventory' | 'calibration'
+  const [panel, setPanel] = useState('recipes');
+  const [referenceIsDry, setReferenceIsDry] = useState(true);
+  const [progressionMode, setProgressionMode] = useState(false);
+  const [progression, setProgression] = useState(null);
 
-  useEffect(() => {
-    localStorage.setItem(LS_RECIPES, JSON.stringify(savedRecipes));
-  }, [savedRecipes]);
-
-  useEffect(() => {
-    localStorage.setItem(LS_INVENTORY, JSON.stringify(activePaintIds));
-  }, [activePaintIds]);
-
-  useEffect(() => {
-    localStorage.setItem(LS_CALIBRATION, JSON.stringify(calibration));
-  }, [calibration]);
+  useEffect(() => { localStorage.setItem(LS_RECIPES, JSON.stringify(savedRecipes)); }, [savedRecipes]);
+  useEffect(() => { localStorage.setItem(LS_INVENTORY, JSON.stringify(activePaintIds)); }, [activePaintIds]);
+  useEffect(() => { localStorage.setItem(LS_CALIBRATION, JSON.stringify(calibration)); }, [calibration]);
 
   const handleSolve = useCallback(() => {
     setSolving(true);
     const activePaints = basePaints.filter(p => activePaintIds.includes(p.id));
+
+    // Wet-to-dry correction: wet reference appears ~7 L* darker than dry result
+    let solveTargetHex = targetHex;
+    if (!referenceIsDry) {
+      const lab = chroma(targetHex).lab();
+      const adjustedL = Math.min(95, Math.max(5, lab[0] + 7));
+      solveTargetHex = chroma.lab(adjustedL, lab[1], lab[2]).hex();
+    }
+
     setTimeout(() => {
-      const result = solveMix(targetHex, activePaints, batchSizeMl);
-      setRecipe(result);
+      if (progressionMode) {
+        const targetLab = chroma(solveTargetHex).lab();
+        const clamp = l => Math.max(5, Math.min(95, l));
+
+        const shadowLab  = shiftLabChroma([clamp(targetLab[0] - 15), targetLab[1], targetLab[2]], +5);
+        const highlightLab = shiftLabChroma([clamp(targetLab[0] + 15), targetLab[1], targetLab[2]], -5);
+
+        const shadowHex    = chroma.lab(...shadowLab).hex();
+        const highlightHex = chroma.lab(...highlightLab).hex();
+
+        const shadowRecipe    = solveMix(shadowHex,      activePaints, batchSizeMl);
+        const midtoneRecipe   = solveMix(solveTargetHex, activePaints, batchSizeMl);
+        const highlightRecipe = solveMix(highlightHex,   activePaints, batchSizeMl);
+
+        setProgression({
+          shadow:    { recipe: shadowRecipe,    targetHex: shadowHex },
+          midtone:   { recipe: midtoneRecipe,   targetHex: solveTargetHex },
+          highlight: { recipe: highlightRecipe, targetHex: highlightHex },
+        });
+        setRecipe(midtoneRecipe);
+      } else {
+        setRecipe(solveMix(solveTargetHex, activePaints, batchSizeMl));
+        setProgression(null);
+      }
       setSolving(false);
     }, 0);
-  }, [targetHex, activePaintIds, batchSizeMl]);
+  }, [targetHex, activePaintIds, batchSizeMl, referenceIsDry, progressionMode]);
 
   const handleSaveRecipe = ({ name, recipe: r, technique: t, batchSizeMl: b }) => {
     setSavedRecipes(prev => [...prev, { name, recipe: r, technique: t, batchSizeMl: b }]);
@@ -61,6 +97,8 @@ export default function App() {
     setRecipe(entry.recipe);
     setTechnique(entry.technique);
     setBatchSizeMl(entry.batchSizeMl);
+    setProgression(null);
+    setProgressionMode(false);
   };
 
   const handleDeleteRecipe = (i) => {
@@ -72,15 +110,16 @@ export default function App() {
   };
 
   const handleResetCalibration = (paintId) => {
-    setCalibration(prev => {
-      const next = { ...prev };
-      delete next[paintId];
-      return next;
-    });
+    setCalibration(prev => { const next = { ...prev }; delete next[paintId]; return next; });
   };
 
-  // Check if target is likely metallic (very dark and low saturation is fine, but gold/silver hues)
-  const isMetallic = false; // no heuristic for MVP; user sees note in UI
+  // Lazy-load ProgressionCard only when needed
+  const [ProgressionCard, setProgressionCard] = useState(null);
+  useEffect(() => {
+    if (progressionMode && !ProgressionCard) {
+      import('./components/ProgressionCard').then(m => setProgressionCard(() => m.default));
+    }
+  }, [progressionMode, ProgressionCard]);
 
   return (
     <div className="min-h-screen bg-[#0F0F0F] text-[#E8E4DC]">
@@ -120,11 +159,38 @@ export default function App() {
 
           {/* Left column: inputs */}
           <div className="flex flex-col gap-5 bg-[#1A1A1A] rounded-xl border border-[#2E2E2E] p-4">
-            <ColorInput
-              value={targetHex}
-              onChange={setTargetHex}
-              hobbyPaints={hobbyPaints}
-            />
+            <ColorInput value={targetHex} onChange={setTargetHex} hobbyPaints={hobbyPaints} />
+
+            {/* Wet-to-dry toggle */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setReferenceIsDry(true)}
+                  className={`flex-1 py-1.5 rounded text-xs font-medium transition-colors ${
+                    referenceIsDry
+                      ? 'bg-[#C8862A] text-white'
+                      : 'bg-[#0F0F0F] border border-[#2E2E2E] text-[#7A7670] hover:border-[#C8862A]'
+                  }`}
+                >
+                  Reference is dry
+                </button>
+                <button
+                  onClick={() => setReferenceIsDry(false)}
+                  className={`flex-1 py-1.5 rounded text-xs font-medium transition-colors ${
+                    !referenceIsDry
+                      ? 'bg-[#C8862A] text-white'
+                      : 'bg-[#0F0F0F] border border-[#2E2E2E] text-[#7A7670] hover:border-[#C8862A]'
+                  }`}
+                >
+                  Reference is wet
+                </button>
+              </div>
+              {!referenceIsDry && (
+                <p className="text-xs text-[#7A7670] italic">
+                  Wet acrylic dries approximately 5–10 L* lighter than it appears wet.
+                </p>
+              )}
+            </div>
 
             <div className="border-t border-[#2E2E2E]" />
 
@@ -143,33 +209,54 @@ export default function App() {
             </button>
           </div>
 
-          {/* Center column: recipe card */}
+          {/* Center column: recipe / progression */}
           <div className="bg-[#1A1A1A] rounded-xl border border-[#2E2E2E] p-4">
-            <h2 className="text-xs font-semibold uppercase tracking-widest text-[#7A7670] mb-4">Recipe</h2>
-            <RecipeCard
-              recipe={recipe}
-              targetHex={targetHex}
-              technique={technique}
-              batchSizeMl={batchSizeMl}
-              onSave={handleSaveRecipe}
-            />
+            {/* Mode toggle */}
+            <div className="flex items-center gap-1 mb-4">
+              {['Single color', 'Progression'].map((label, i) => (
+                <button
+                  key={label}
+                  onClick={() => setProgressionMode(i === 1)}
+                  className={`flex-1 py-1.5 rounded text-xs font-medium transition-colors ${
+                    progressionMode === (i === 1)
+                      ? 'bg-[#2E2E2E] text-[#E8E4DC]'
+                      : 'text-[#7A7670] hover:text-[#E8E4DC]'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {progressionMode && progression && ProgressionCard ? (
+              <ProgressionCard
+                progression={progression}
+                technique={technique}
+                batchSizeMl={batchSizeMl}
+                hobbyPaints={hobbyPaints}
+                onSave={handleSaveRecipe}
+              />
+            ) : progressionMode && progression && !ProgressionCard ? (
+              <p className="text-xs text-[#7A7670]">Loading…</p>
+            ) : (
+              <RecipeCard
+                recipe={recipe}
+                targetHex={targetHex}
+                technique={technique}
+                batchSizeMl={batchSizeMl}
+                hobbyPaints={hobbyPaints}
+                onSave={handleSaveRecipe}
+              />
+            )}
           </div>
 
           {/* Right column: panel */}
           <div className="bg-[#1A1A1A] rounded-xl border border-[#2E2E2E] p-4">
             {panel === 'recipes' && (
-              <SavedRecipes
-                recipes={savedRecipes}
-                onLoad={handleLoadRecipe}
-                onDelete={handleDeleteRecipe}
-              />
+              <SavedRecipes recipes={savedRecipes} onLoad={handleLoadRecipe} onDelete={handleDeleteRecipe} />
             )}
             {panel === 'inventory' && (
-              <PaintInventory
-                paints={basePaints}
-                activePaintIds={activePaintIds}
-                onChange={setActivePaintIds}
-              />
+              <PaintInventory paints={basePaints} activePaintIds={activePaintIds} onChange={setActivePaintIds} />
             )}
             {panel === 'calibration' && (
               <CalibrationFlow
