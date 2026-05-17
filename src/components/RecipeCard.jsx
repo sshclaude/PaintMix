@@ -6,6 +6,7 @@ const WELLS = [
   { id: 'detail',   label: 'Detail (8mm)',   area: 0.5 },
   { id: 'general',  label: 'General (12mm)', area: 1.1 },
   { id: 'basecoat', label: 'Basecoat (18mm)',area: 2.5 },
+  { id: 'custom',   label: 'Custom',         area: null },
 ];
 
 const HUMIDITY = [
@@ -52,13 +53,14 @@ function scaleRecipe(recipe, originalBatch, newBatch) {
   return { ...recipe, components: scaled };
 }
 
-function computeRehydration(batchMl, wellId, humidityId) {
+function computeRehydration(batchMl, wellId, humidityId, customAreaCm2) {
   const well = WELLS.find(w => w.id === wellId) || WELLS[1];
+  const area = wellId === 'custom' ? (parseFloat(customAreaCm2) || 1.1) : well.area;
   const hum = HUMIDITY.find(h => h.id === humidityId) || HUMIDITY[1];
-  const rate = 0.003 * well.area * hum.modifier;
+  const rate = 0.003 * area * hum.modifier;
   const minutes = Math.round((batchMl * 0.10) / rate / 5) * 5;
   const volume = Math.round((batchMl * 0.05) / 0.05) * 0.05;
-  return { minutes, volume, well, hum };
+  return { minutes, volume, well, hum, area };
 }
 
 function printCard({ recipe, activeBatch, targetHex, tech, thinnerMl, totalMl, rehydration }) {
@@ -134,10 +136,13 @@ export default function RecipeCard({ recipe, targetHex, technique, batchSizeMl, 
   const [showRehydration, setShowRehydration] = useState(false);
   const [wellId, setWellId] = useState('general');
   const [humidityId, setHumidityId] = useState('normal');
+  const [customArea, setCustomArea] = useState('1.1');
 
   const tech = TECHNIQUES.find(t => t.id === technique) || TECHNIQUES[0];
   const activeRecipe = scaledRecipe || recipe;
-  const activeBatch = scaledBatch ?? batchSizeMl;
+  // Use the batch size that was current at solve time; fall back to live prop only for legacy saved recipes
+  const solvedBatch = recipe?.batchSizeMl ?? batchSizeMl;
+  const activeBatch = scaledBatch ?? solvedBatch;
   const thinnerMl = Math.round(activeBatch * tech.ratio * 100) / 100;
   const totalMl = Math.round((activeBatch + thinnerMl) * 100) / 100;
 
@@ -185,7 +190,7 @@ export default function RecipeCard({ recipe, targetHex, technique, batchSizeMl, 
 
   const handlePrint = () => {
     if (!activeRecipe) return;
-    const rehydration = computeRehydration(activeBatch, wellId, humidityId);
+    const rehydration = computeRehydration(activeBatch, wellId, humidityId, customArea);
     printCard({ recipe: activeRecipe, activeBatch, targetHex, tech, thinnerMl, totalMl, rehydration });
   };
 
@@ -332,7 +337,7 @@ export default function RecipeCard({ recipe, targetHex, technique, batchSizeMl, 
         </button>
         {showRehydration && (
           <div className="px-3 pb-3 flex flex-col gap-3 border-t border-[#2E2E2E]">
-            <div className="flex gap-2 mt-2">
+            <div className="flex gap-2 mt-2 flex-wrap">
               {WELLS.map(w => (
                 <button
                   key={w.id}
@@ -346,6 +351,20 @@ export default function RecipeCard({ recipe, targetHex, technique, batchSizeMl, 
                   {w.label}
                 </button>
               ))}
+              {wellId === 'custom' && (
+                <div className="w-full flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0.1"
+                    max="100"
+                    step="0.1"
+                    value={customArea}
+                    onChange={e => setCustomArea(e.target.value)}
+                    className="w-24 px-2 py-1 rounded bg-[#0F0F0F] border border-[#C8862A] text-xs text-[#E8E4DC] focus:outline-none"
+                  />
+                  <span className="text-xs text-[#7A7670]">cm² well area</span>
+                </div>
+              )}
             </div>
             <div className="flex gap-2">
               {HUMIDITY.map(h => (
@@ -363,10 +382,11 @@ export default function RecipeCard({ recipe, targetHex, technique, batchSizeMl, 
               ))}
             </div>
             {(() => {
-              const { minutes, volume, well, hum } = computeRehydration(activeBatch, wellId, humidityId);
+              const { minutes, volume, well, hum, area } = computeRehydration(activeBatch, wellId, humidityId, customArea);
+              const wellDesc = wellId === 'custom' ? `custom (${area} cm²)` : well.label.toLowerCase();
               return (
                 <p className="text-xs text-[#E8E4DC] leading-relaxed">
-                  Add <span className="font-mono text-[#C8862A]">{volume.toFixed(2)} mL</span> of water to a {well.label.toLowerCase()} well.
+                  Add <span className="font-mono text-[#C8862A]">{volume.toFixed(2)} mL</span> of water to a {wellDesc} well.
                   At {hum.label.toLowerCase()} humidity, paint will stay workable ~<span className="font-mono text-[#C8862A]">{minutes} min</span>.
                   Top up with water if it thickens.
                 </p>

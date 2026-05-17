@@ -233,7 +233,6 @@ function Divider() {
 export default function ProgressionCard({
   progression,
   technique,
-  batchSizeMl,
   hobbyPaints,
   onSave,
 }) {
@@ -241,9 +240,8 @@ export default function ProgressionCard({
   const [saveName, setSaveName] = useState('');
 
   const tech = TECHNIQUES.find(t => t.id === technique) || TECHNIQUES[0];
+  const { shadow, midtone, highlight, batchSizeMl } = progression;
   const thinnerMl = Math.round(batchSizeMl * tech.ratio * 100) / 100;
-
-  const { shadow, midtone, highlight } = progression;
 
   // Step 1 total (paint components + thinner)
   const step1Total = Math.round((batchSizeMl + thinnerMl) * 100) / 100;
