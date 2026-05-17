@@ -98,5 +98,38 @@
     "hex": "#1E7028",
     "lab": [42.3, -46.2, 30.8],
     "opacity": "transparent"
+  },
+  {
+    "id": "GF11",
+    "name": "Burnt Sienna",
+    "brand": "Golden Fluid Acrylics",
+    "pigmentCode": "PR101",
+    "role": "Red oxide / earth tones, skin, leather, rust",
+    "hex": "#9C4218",
+    "lab": [35.2, 26.4, 27.6],
+    "opacity": "semi-opaque",
+    "extended": true
+  },
+  {
+    "id": "GF12",
+    "name": "Yellow Ochre",
+    "brand": "Golden Fluid Acrylics",
+    "pigmentCode": "PY42",
+    "role": "Yellow oxide / earth tones, sand, bone",
+    "hex": "#C89020",
+    "lab": [61.8, 11.6, 52.4],
+    "opacity": "semi-opaque",
+    "extended": true
+  },
+  {
+    "id": "GF13",
+    "name": "Dioxazine Purple",
+    "brand": "Golden Fluid Acrylics",
+    "pigmentCode": "PV23",
+    "role": "Deep violet, shadow purples",
+    "hex": "#260850",
+    "lab": [8.2, 22.6, -33.8],
+    "opacity": "transparent",
+    "extended": true
   }
 ]
