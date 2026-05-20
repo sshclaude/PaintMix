@@ -1,20 +1,22 @@
 /**
  * Pigment K(λ) and S(λ) coefficients for each paint in basePaints.json.
  *
- * K/S source priority:
- *   1. Measured: Golden Heavy Body spectrophotometer data (goldenSpectra.json),
- *      10 mil drawdowns over white, D65/10°. K/S is concentration-invariant,
- *      so HB measurements apply directly to Fluid Acrylics of the same pigment.
- *   2. Derived: Burns 2017 minimum-curvature reflectance reconstruction from the
- *      paint's hex value (used for Titanium White and any paint not in the
- *      measured dataset).
+ * All K/S data comes from goldenSpectra.json, which contains measured
+ * spectrophotometer data (Golden Heavy Body, 10 mil drawdowns over white,
+ * D65/10°) at 400–700 nm (31 bands, 10 nm step).
  *
- * In both cases the S_scalar (scattering magnitude prior) is derived from the
- * opacity field, and K(λ) = KoS(λ) × S_scalar, S(λ) = S_scalar.
+ * K/S ratios are concentration-invariant, so Heavy Body measurements
+ * apply directly to the Fluid Acrylics of the same pigment.
+ *
+ * Two special cases (not in the drawdown dataset):
+ *   GF01 Titanium White — hardcoded as the K-M reference white
+ *                         (K=0.0026 flat, S=1.0, R≈95%)
+ *   GF05 Benz. Yellow Medium — Diarylide Yellow (prod #1147) used as
+ *         spectral proxy; PY83 and diarylide family are visually similar.
+ *         User calibration will give the most accurate results here.
  */
 
-import { reconstruct } from '../spectrum/reconstruct.ts';
-import { apparentToKoS, DEFAULT_K1, DEFAULT_K2 } from './forward.ts';
+import { apparentToKoS, saunderson, DEFAULT_K1, DEFAULT_K2 } from './forward.ts';
 import { N_BANDS } from './cie.ts';
 import basePaintsRaw from '../data/basePaints.json' assert { type: 'json' };
 import goldenSpectraRaw from '../data/goldenSpectra.json' assert { type: 'json' };
@@ -34,18 +36,16 @@ export interface PaintRecord {
 
 export interface PigmentData {
   paint: PaintRecord;
-  /** K[band] absorption coefficient */
+  /** K[band] absorption coefficient (length = N_BANDS) */
   K: Float64Array;
-  /** S[band] scattering coefficient */
+  /** S[band] scattering coefficient (length = N_BANDS) */
   S: Float64Array;
-  /** Masstone reflectance spectrum (36 bands) */
+  /** Apparent masstone reflectance, forward-computed from K/S via Saunderson */
   masstone: Float64Array;
-  /** 'measured' if from spectrophotometer data, 'derived' if from hex via Burns 2017 */
-  source: 'measured' | 'derived';
 }
 
 // ---------------------------------------------------------------------------
-// Opacity → S scalar
+// Opacity → S scalar (scattering magnitude prior)
 // ---------------------------------------------------------------------------
 
 const OPACITY_S: Record<string, number> = {
@@ -56,53 +56,43 @@ const OPACITY_S: Record<string, number> = {
 };
 
 // ---------------------------------------------------------------------------
-// Measured K/S table (Golden HB spectrophotometer data)
+// Measured K/S table
 // ---------------------------------------------------------------------------
 
 const GOLDEN_SPECTRA = goldenSpectraRaw as Record<string, { ks: number[] }>;
 
 // ---------------------------------------------------------------------------
-// Build pigment table at module load
+// Build pigment table
 // ---------------------------------------------------------------------------
 
-function buildPigment(p: PaintRecord, k1: number, k2: number): PigmentData {
+function buildPigment(p: PaintRecord): PigmentData {
   const Sscalar = OPACITY_S[p.opacity] ?? 0.2;
+  const spec = GOLDEN_SPECTRA[p.id];
+
+  if (!spec || spec.ks.length !== N_BANDS) {
+    throw new Error(
+      `goldenSpectra.json missing or wrong-length entry for ${p.id} (${p.name}). ` +
+      `Expected ${N_BANDS} bands, got ${spec?.ks.length ?? 0}.`,
+    );
+  }
+
   const K = new Float64Array(N_BANDS);
   const S = new Float64Array(N_BANDS);
+  const masstone = new Float64Array(N_BANDS);
 
-  const measured = GOLDEN_SPECTRA[p.id];
-  if (measured) {
-    // Use real measured K/S from Golden spectrophotometer data
-    for (let i = 0; i < N_BANDS; i++) {
-      S[i] = Sscalar;
-      K[i] = measured.ks[i] * Sscalar;
-    }
-    // Derive masstone reflectance from measured K/S via Saunderson
-    const masstone = new Float64Array(N_BANDS);
-    for (let i = 0; i < N_BANDS; i++) {
-      const ks = measured.ks[i];
-      const R_KM = ks > 0 ? 1 + ks - Math.sqrt(ks * ks + 2 * ks) : 1;
-      const den = 1 - (1 - k1) * (1 - k2) / (1 - k2 * R_KM) * (1 - k1);
-      // Saunderson forward: R_app = k1 + (1-k1)(1-k2)*R_KM / (1-k2*R_KM)
-      masstone[i] = Math.max(0, Math.min(1,
-        k1 + (1 - k1) * (1 - k2) * R_KM / (1 - k2 * R_KM)));
-    }
-    return { paint: p as PaintRecord, K, S, masstone, source: 'measured' };
-  }
-
-  // Fall back to Burns 2017 reconstruction from hex
-  const masstone = reconstruct(p.hex);
   for (let i = 0; i < N_BANDS; i++) {
-    const KoS = apparentToKoS(masstone[i], k1, k2);
+    const ks = spec.ks[i];
     S[i] = Sscalar;
-    K[i] = KoS * Sscalar;
+    K[i] = ks * Sscalar;
+    // Forward K-M + Saunderson to get apparent reflectance for diagnostics
+    const R_KM = ks > 0 ? 1 + ks - Math.sqrt(ks * ks + 2 * ks) : 1;
+    masstone[i] = saunderson(R_KM, DEFAULT_K1, DEFAULT_K2);
   }
-  return { paint: p as PaintRecord, K, S, masstone, source: 'derived' };
+
+  return { paint: p as PaintRecord, K, S, masstone };
 }
 
-export const PIGMENTS: PigmentData[] = (basePaintsRaw as PaintRecord[]).map(p =>
-  buildPigment(p, DEFAULT_K1, DEFAULT_K2),
-);
+export const PIGMENTS: PigmentData[] = (basePaintsRaw as PaintRecord[]).map(buildPigment);
 
 /** Return pigment data for a specific paint id. */
 export function getPigment(id: string): PigmentData | undefined {
