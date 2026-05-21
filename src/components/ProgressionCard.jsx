@@ -7,6 +7,7 @@ import { TECHNIQUES } from './TechniqueSelector';
 // ---------------------------------------------------------------------------
 
 function computeDiff(fromRecipe, toRecipe) {
+  if (!fromRecipe || !toRecipe) return [];
   const allIds = new Set([
     ...fromRecipe.components.map(c => c.paint.id),
     ...toRecipe.components.map(c => c.paint.id),
@@ -150,21 +151,32 @@ function printStep({ stepTitle, swatchHex, components, thinnerMl, techLabel, tot
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function ColorSwatch({ hex, label, deltaE, accuracy, hobbyPaints }) {
-  const closest = findClosestHobbyPaint(hex, hobbyPaints);
+function ColorSwatch({ recipe, label, hobbyPaints }) {
+  const closest = recipe ? findClosestHobbyPaint(recipe.predictedHex, hobbyPaints) : null;
   return (
     <div className="flex flex-col items-center gap-1 flex-1">
       <span className="text-xs uppercase tracking-widest text-[#7A7670]">{label}</span>
-      <div
-        className="w-16 h-16 rounded border border-[#2E2E2E]"
-        style={{ backgroundColor: hex }}
-      />
-      <span className="text-xs font-mono text-[#C8862A]">ΔE {deltaE}</span>
-      <span className="text-xs text-[#7A7670] text-center leading-tight">{accuracy}</span>
-      {closest && (
-        <span className="text-xs text-[#7A7670] italic text-center leading-tight">
-          ≈ {closest.paint.name}
-        </span>
+      {recipe ? (
+        <>
+          <div
+            className="w-16 h-16 rounded border border-[#2E2E2E]"
+            style={{ backgroundColor: recipe.predictedHex }}
+          />
+          <span className="text-xs font-mono text-[#C8862A]">ΔE {recipe.deltaE}</span>
+          <span className="text-xs text-[#7A7670] text-center leading-tight">{recipe.accuracy}</span>
+          {closest && (
+            <span className="text-xs text-[#7A7670] italic text-center leading-tight">
+              ≈ {closest.paint.name}
+            </span>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="w-16 h-16 rounded border border-[#2E2E2E] bg-[#1A1A1A] flex items-center justify-center">
+            <span className="text-[#4A4640] text-lg">?</span>
+          </div>
+          <span className="text-xs text-[#4A4640] text-center leading-tight">No solution</span>
+        </>
       )}
     </div>
   );
@@ -243,10 +255,10 @@ export default function ProgressionCard({
   const { shadow, midtone, highlight, batchSizeMl } = progression;
   const thinnerMl = Math.round(batchSizeMl * tech.ratio * 100) / 100;
 
-  // Step 1 total (paint components + thinner)
+  // Step 1 total (paint components + thinner) — only meaningful when shadow recipe exists
   const step1Total = Math.round((batchSizeMl + thinnerMl) * 100) / 100;
 
-  // Step 2: diff midtone − shadow
+  // Step 2: diff midtone − shadow (safe when either recipe is null → empty diff)
   const step2Diffs = computeDiff(shadow.recipe, midtone.recipe);
   const step2Added = Math.round(sumPositiveDiffs(step2Diffs) * 100) / 100;
   const step2Total = Math.round((step1Total + step2Added) * 100) / 100;
@@ -261,14 +273,11 @@ export default function ProgressionCard({
   // ---------------------------------------------------------------------------
 
   function handlePrintStep1() {
+    if (!shadow.recipe) return;
     printStep({
       stepTitle: 'Step 1 — Shadow Batch',
       swatchHex: shadow.recipe.predictedHex,
-      components: shadow.recipe.components.map(c => ({
-        name: c.paint.name,
-        volumeMl: c.volumeMl,
-        hex: c.paint.hex,
-      })),
+      components: shadow.recipe.components.map(c => ({ name: c.paint.name, volumeMl: c.volumeMl, hex: c.paint.hex })),
       thinnerMl,
       techLabel: tech.label,
       totalMl: step1Total,
@@ -278,9 +287,8 @@ export default function ProgressionCard({
   }
 
   function handlePrintStep2() {
-    const addedComponents = step2Diffs
-      .filter(d => d.diff > 0)
-      .map(d => ({ name: d.paint.name, volumeMl: d.diff, hex: d.paint.hex }));
+    if (!midtone.recipe) return;
+    const addedComponents = step2Diffs.filter(d => d.diff > 0).map(d => ({ name: d.paint.name, volumeMl: d.diff, hex: d.paint.hex }));
     printStep({
       stepTitle: 'Step 2 — Build the Midtone from the Shadow',
       swatchHex: midtone.recipe.predictedHex,
@@ -294,9 +302,8 @@ export default function ProgressionCard({
   }
 
   function handlePrintStep3() {
-    const addedComponents = step3Diffs
-      .filter(d => d.diff > 0)
-      .map(d => ({ name: d.paint.name, volumeMl: d.diff, hex: d.paint.hex }));
+    if (!highlight.recipe) return;
+    const addedComponents = step3Diffs.filter(d => d.diff > 0).map(d => ({ name: d.paint.name, volumeMl: d.diff, hex: d.paint.hex }));
     printStep({
       stepTitle: 'Step 3 — Build the Highlight from the Midtone',
       swatchHex: highlight.recipe.predictedHex,
@@ -336,27 +343,9 @@ export default function ProgressionCard({
 
       {/* Swatch row */}
       <div className="flex gap-2 justify-around">
-        <ColorSwatch
-          hex={shadow.recipe.predictedHex}
-          label="Shadow"
-          deltaE={shadow.recipe.deltaE}
-          accuracy={shadow.recipe.accuracy}
-          hobbyPaints={hobbyPaints}
-        />
-        <ColorSwatch
-          hex={midtone.recipe.predictedHex}
-          label="Midtone"
-          deltaE={midtone.recipe.deltaE}
-          accuracy={midtone.recipe.accuracy}
-          hobbyPaints={hobbyPaints}
-        />
-        <ColorSwatch
-          hex={highlight.recipe.predictedHex}
-          label="Highlight"
-          deltaE={highlight.recipe.deltaE}
-          accuracy={highlight.recipe.accuracy}
-          hobbyPaints={hobbyPaints}
-        />
+        <ColorSwatch recipe={shadow.recipe}    label="Shadow"    hobbyPaints={hobbyPaints} />
+        <ColorSwatch recipe={midtone.recipe}   label="Midtone"   hobbyPaints={hobbyPaints} />
+        <ColorSwatch recipe={highlight.recipe} label="Highlight" hobbyPaints={hobbyPaints} />
       </div>
 
       <Divider />
@@ -366,12 +355,18 @@ export default function ProgressionCard({
         <span className="text-sm font-semibold text-[#C8862A] uppercase tracking-wider">
           Step 1 — Shadow Batch
         </span>
-        {shadow.recipe.components.map((c, i) => (
-          <ComponentRow key={i} hex={c.paint.hex} name={c.paint.name} volumeMl={c.volumeMl} />
-        ))}
-        <ThinnerRow thinnerMl={thinnerMl} techLabel={tech.label} />
-        <TotalRow totalMl={step1Total} />
-        <PrintButton onClick={handlePrintStep1} />
+        {shadow.recipe ? (
+          <>
+            {shadow.recipe.components.map((c, i) => (
+              <ComponentRow key={i} hex={c.paint.hex} name={c.paint.name} volumeMl={c.volumeMl} />
+            ))}
+            <ThinnerRow thinnerMl={thinnerMl} techLabel={tech.label} />
+            <TotalRow totalMl={step1Total} />
+            <PrintButton onClick={handlePrintStep1} />
+          </>
+        ) : (
+          <p className="text-xs text-[#7A7670] italic">Could not solve shadow shade — try a less extreme target color.</p>
+        )}
       </div>
 
       <Divider />
@@ -381,44 +376,38 @@ export default function ProgressionCard({
         <span className="text-sm font-semibold text-[#C8862A] uppercase tracking-wider">
           Step 2 — Build the Midtone from the Shadow
         </span>
-        <p className="text-xs text-[#7A7670] mb-1">
-          Starting from{' '}
-          <span className="font-mono text-[#E8E4DC]">{step1Total.toFixed(2)} mL</span>{' '}
-          shadow:
-        </p>
-        {step2Diffs
-          .filter(d => d.diff !== 0)
-          .map((d, i) =>
-            d.diff > 0 ? (
-              <div key={i} className="flex items-center gap-3 py-1.5">
-                <div
-                  className="w-5 h-5 rounded shrink-0 border border-[#2E2E2E]"
-                  style={{ backgroundColor: d.paint.hex }}
-                />
-                <span className="text-sm text-[#E8E4DC] flex-1">
-                  Add {d.paint.name}
-                </span>
-                <span className="text-sm font-mono text-[#C8862A] w-16 text-right">
-                  {d.diff.toFixed(2)} mL
-                </span>
-              </div>
-            ) : (
-              <div key={i} className="flex items-center gap-3 py-1 opacity-50">
-                <div
-                  className="w-5 h-5 rounded shrink-0 border border-[#2E2E2E]"
-                  style={{ backgroundColor: d.paint.hex }}
-                />
-                <span className="text-sm text-[#7A7670] flex-1 italic">
-                  ↓ {d.paint.name} will be diluted ({d.diff.toFixed(2)} mL)
-                </span>
-              </div>
-            )
-          )}
-        <div className="flex items-center justify-between pt-2 border-t border-[#2E2E2E] mt-1">
-          <span className="text-sm font-semibold text-[#E8E4DC]">Total volume after this step</span>
-          <span className="text-sm font-mono font-bold text-[#E8E4DC]">{step2Total.toFixed(2)} mL</span>
-        </div>
-        <PrintButton onClick={handlePrintStep2} />
+        {midtone.recipe && shadow.recipe ? (
+          <>
+            <p className="text-xs text-[#7A7670] mb-1">
+              Starting from{' '}
+              <span className="font-mono text-[#E8E4DC]">{step1Total.toFixed(2)} mL</span>{' '}
+              shadow:
+            </p>
+            {step2Diffs
+              .filter(d => d.diff !== 0)
+              .map((d, i) =>
+                d.diff > 0 ? (
+                  <div key={i} className="flex items-center gap-3 py-1.5">
+                    <div className="w-5 h-5 rounded shrink-0 border border-[#2E2E2E]" style={{ backgroundColor: d.paint.hex }} />
+                    <span className="text-sm text-[#E8E4DC] flex-1">Add {d.paint.name}</span>
+                    <span className="text-sm font-mono text-[#C8862A] w-16 text-right">{d.diff.toFixed(2)} mL</span>
+                  </div>
+                ) : (
+                  <div key={i} className="flex items-center gap-3 py-1 opacity-50">
+                    <div className="w-5 h-5 rounded shrink-0 border border-[#2E2E2E]" style={{ backgroundColor: d.paint.hex }} />
+                    <span className="text-sm text-[#7A7670] flex-1 italic">↓ {d.paint.name} will be diluted ({d.diff.toFixed(2)} mL)</span>
+                  </div>
+                )
+              )}
+            <div className="flex items-center justify-between pt-2 border-t border-[#2E2E2E] mt-1">
+              <span className="text-sm font-semibold text-[#E8E4DC]">Total volume after this step</span>
+              <span className="text-sm font-mono font-bold text-[#E8E4DC]">{step2Total.toFixed(2)} mL</span>
+            </div>
+            <PrintButton onClick={handlePrintStep2} />
+          </>
+        ) : (
+          <p className="text-xs text-[#7A7670] italic">Could not solve midtone or shadow shade.</p>
+        )}
       </div>
 
       <Divider />
@@ -428,44 +417,38 @@ export default function ProgressionCard({
         <span className="text-sm font-semibold text-[#C8862A] uppercase tracking-wider">
           Step 3 — Build the Highlight from the Midtone
         </span>
-        <p className="text-xs text-[#7A7670] mb-1">
-          Starting from{' '}
-          <span className="font-mono text-[#E8E4DC]">{step2Total.toFixed(2)} mL</span>{' '}
-          midtone:
-        </p>
-        {step3Diffs
-          .filter(d => d.diff !== 0)
-          .map((d, i) =>
-            d.diff > 0 ? (
-              <div key={i} className="flex items-center gap-3 py-1.5">
-                <div
-                  className="w-5 h-5 rounded shrink-0 border border-[#2E2E2E]"
-                  style={{ backgroundColor: d.paint.hex }}
-                />
-                <span className="text-sm text-[#E8E4DC] flex-1">
-                  Add {d.paint.name}
-                </span>
-                <span className="text-sm font-mono text-[#C8862A] w-16 text-right">
-                  {d.diff.toFixed(2)} mL
-                </span>
-              </div>
-            ) : (
-              <div key={i} className="flex items-center gap-3 py-1 opacity-50">
-                <div
-                  className="w-5 h-5 rounded shrink-0 border border-[#2E2E2E]"
-                  style={{ backgroundColor: d.paint.hex }}
-                />
-                <span className="text-sm text-[#7A7670] flex-1 italic">
-                  ↓ {d.paint.name} will be diluted ({d.diff.toFixed(2)} mL)
-                </span>
-              </div>
-            )
-          )}
-        <div className="flex items-center justify-between pt-2 border-t border-[#2E2E2E] mt-1">
-          <span className="text-sm font-semibold text-[#E8E4DC]">Total volume after this step</span>
-          <span className="text-sm font-mono font-bold text-[#E8E4DC]">{step3Total.toFixed(2)} mL</span>
-        </div>
-        <PrintButton onClick={handlePrintStep3} />
+        {highlight.recipe && midtone.recipe ? (
+          <>
+            <p className="text-xs text-[#7A7670] mb-1">
+              Starting from{' '}
+              <span className="font-mono text-[#E8E4DC]">{step2Total.toFixed(2)} mL</span>{' '}
+              midtone:
+            </p>
+            {step3Diffs
+              .filter(d => d.diff !== 0)
+              .map((d, i) =>
+                d.diff > 0 ? (
+                  <div key={i} className="flex items-center gap-3 py-1.5">
+                    <div className="w-5 h-5 rounded shrink-0 border border-[#2E2E2E]" style={{ backgroundColor: d.paint.hex }} />
+                    <span className="text-sm text-[#E8E4DC] flex-1">Add {d.paint.name}</span>
+                    <span className="text-sm font-mono text-[#C8862A] w-16 text-right">{d.diff.toFixed(2)} mL</span>
+                  </div>
+                ) : (
+                  <div key={i} className="flex items-center gap-3 py-1 opacity-50">
+                    <div className="w-5 h-5 rounded shrink-0 border border-[#2E2E2E]" style={{ backgroundColor: d.paint.hex }} />
+                    <span className="text-sm text-[#7A7670] flex-1 italic">↓ {d.paint.name} will be diluted ({d.diff.toFixed(2)} mL)</span>
+                  </div>
+                )
+              )}
+            <div className="flex items-center justify-between pt-2 border-t border-[#2E2E2E] mt-1">
+              <span className="text-sm font-semibold text-[#E8E4DC]">Total volume after this step</span>
+              <span className="text-sm font-mono font-bold text-[#E8E4DC]">{step3Total.toFixed(2)} mL</span>
+            </div>
+            <PrintButton onClick={handlePrintStep3} />
+          </>
+        ) : (
+          <p className="text-xs text-[#7A7670] italic">Could not solve highlight or midtone shade.</p>
+        )}
       </div>
 
       <Divider />

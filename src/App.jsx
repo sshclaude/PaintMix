@@ -269,6 +269,12 @@ export default function App() {
 
         </div>
       </main>
+
+      {/* Footer */}
+      <footer className="border-t border-[#2E2E2E] mt-8 px-4 py-3 flex items-center justify-between text-[#4A4640]">
+        <span className="text-xs font-mono">v{__APP_VERSION__}</span>
+        <span className="text-xs">Spectral K-M solver · Golden HB dataset</span>
+      </footer>
     </div>
   );
 }
