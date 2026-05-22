@@ -1,6 +1,7 @@
 [
   {
     "id": "GF01",
+    "goldenPaintId": "1380",
     "name": "Titanium White",
     "brand": "Golden Fluid Acrylics",
     "pigmentCode": "PW6",
@@ -11,6 +12,7 @@
   },
   {
     "id": "GF02",
+    "goldenPaintId": "1040",
     "name": "Carbon Black",
     "brand": "Golden Fluid Acrylics",
     "pigmentCode": "PBk7",
@@ -21,6 +23,7 @@
   },
   {
     "id": "GF03",
+    "goldenPaintId": "1305",
     "name": "Quinacridone Magenta",
     "brand": "Golden Fluid Acrylics",
     "pigmentCode": "PR122",
@@ -31,6 +34,7 @@
   },
   {
     "id": "GF04",
+    "goldenPaintId": "1210",
     "name": "Naphthol Red Light",
     "brand": "Golden Fluid Acrylics",
     "pigmentCode": "PR112",
@@ -41,6 +45,7 @@
   },
   {
     "id": "GF05",
+    "goldenPaintId": "1008",
     "name": "Benzimidazolone Yellow Medium",
     "brand": "Golden Fluid Acrylics",
     "pigmentCode": "PY83",
@@ -51,6 +56,7 @@
   },
   {
     "id": "GF06",
+    "goldenPaintId": "1009",
     "name": "Benzimidazolone Yellow Light",
     "brand": "Golden Fluid Acrylics",
     "pigmentCode": "PY3",
@@ -61,6 +67,7 @@
   },
   {
     "id": "GF07",
+    "goldenPaintId": "1260",
     "name": "Phthalo Blue (Red Shade)",
     "brand": "Golden Fluid Acrylics",
     "pigmentCode": "PB15:1",
@@ -71,6 +78,7 @@
   },
   {
     "id": "GF08",
+    "goldenPaintId": "1255",
     "name": "Phthalo Blue (Green Shade)",
     "brand": "Golden Fluid Acrylics",
     "pigmentCode": "PB15:3",
@@ -81,6 +89,7 @@
   },
   {
     "id": "GF09",
+    "goldenPaintId": "1270",
     "name": "Phthalo Green (Blue Shade)",
     "brand": "Golden Fluid Acrylics",
     "pigmentCode": "PG7",
@@ -91,6 +100,7 @@
   },
   {
     "id": "GF10",
+    "goldenPaintId": "1275",
     "name": "Phthalo Green (Yellow Shade)",
     "brand": "Golden Fluid Acrylics",
     "pigmentCode": "PG36",
@@ -98,38 +108,5 @@
     "hex": "#1E7028",
     "lab": [42.3, -46.2, 30.8],
     "opacity": "transparent"
-  },
-  {
-    "id": "GF11",
-    "name": "Burnt Sienna",
-    "brand": "Golden Fluid Acrylics",
-    "pigmentCode": "PR101",
-    "role": "Red oxide / earth tones, skin, leather, rust",
-    "hex": "#9C4218",
-    "lab": [35.2, 26.4, 27.6],
-    "opacity": "semi-opaque",
-    "extended": true
-  },
-  {
-    "id": "GF12",
-    "name": "Yellow Ochre",
-    "brand": "Golden Fluid Acrylics",
-    "pigmentCode": "PY42",
-    "role": "Yellow oxide / earth tones, sand, bone",
-    "hex": "#C89020",
-    "lab": [61.8, 11.6, 52.4],
-    "opacity": "semi-opaque",
-    "extended": true
-  },
-  {
-    "id": "GF13",
-    "name": "Dioxazine Purple",
-    "brand": "Golden Fluid Acrylics",
-    "pigmentCode": "PV23",
-    "role": "Deep violet, shadow purples",
-    "hex": "#260850",
-    "lab": [8.2, 22.6, -33.8],
-    "opacity": "transparent",
-    "extended": true
   }
 ]

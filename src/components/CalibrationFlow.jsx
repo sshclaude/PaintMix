@@ -1,6 +1,4 @@
 import { useState, useRef } from 'react';
-import mixbox from 'mixbox';
-import chroma from 'chroma-js';
 
 const STEPS = ['Upload white swatch', 'Upload black swatch', 'Done'];
 
@@ -77,9 +75,7 @@ export default function CalibrationFlow({ paints, calibration, onCalibrate, onRe
 
   const handleCalibrate = () => {
     if (!whiteRgb || !blackRgb || !paint) return;
-    const latentWhite = mixbox.rgbToLatent(whiteRgb.r, whiteRgb.g, whiteRgb.b);
-    const latentBlack = mixbox.rgbToLatent(blackRgb.r, blackRgb.g, blackRgb.b);
-    onCalibrate(paint.id, { latentWhite, latentBlack, hexWhite: whiteRgb.hex, hexBlack: blackRgb.hex });
+    onCalibrate(paint.id, { hexWhite: whiteRgb.hex, hexBlack: blackRgb.hex });
     setWhiteRgb(null);
     setBlackRgb(null);
   };
