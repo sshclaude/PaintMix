@@ -4,25 +4,25 @@
  * Algorithm (fully deterministic):
  *
  * 1. Reconstruct target reflectance from hex via Burns 2017 → R_target(λ).
- * 2. Apply Saunderson inverse → R_KM(λ) → target K/S ratio x_target(λ).
- * 3. For k ∈ {2, 3, 4}: enumerate every C(N, k) support.
- *    For each support:
- *      a. Build A[λ, i] = K_i(λ) − x_target(λ) × S_i(λ)
- *      b. Augment with normalisation row (forces Σcᵢ ≈ 1)
- *      c. Solve NNLS: minimise ‖A_aug c − b_aug‖² s.t. c ≥ 0
- *      d. Normalise Σcᵢ = 1
- *      e. Forward-predict reflectance; compute ΔE₂₀₀₀
- * 4. Rank by ΔE ascending, then k ascending, then ‖c‖₂ ascending.
- * 5. Scale winning fractions to volumes, round to 0.05 mL.
+ * 2. For k ∈ {2, 3, 4}: enumerate every C(N, k) support.
+ *    For each support, grid-search concentrations on the k-simplex to find
+ *    the point that minimises Lab² distance from the target (fast proxy for
+ *    ΔE₂₀₀₀). Confirm the winner with full spectraDE2000.
+ *    Grid step: k=2 → 0.05 (21 pts), k=3 → 0.10 (66 pts), k=4 → 0.20 (56 pts).
+ *    k=4 is only attempted when the best ΔE after k=2+3 is in (2, 10] —
+ *    i.e., when a 4th pigment is plausibly useful.
+ * 3. Rank all supports by ΔE₂₀₀₀ ascending, then k ascending, then ‖c‖₂.
+ * 4. Scale winning fractions to volumes, round to 0.05 mL.
+ *    Recompute predicted colour from final volumes.
+ *    Drop any component that rounds to 0.00 mL before output.
  *
  * NO Math.random. NO Date.now. Fully deterministic.
  */
 
 import { reconstruct } from '../spectrum/reconstruct.ts';
-import { reflectanceFromConcentrations, apparentToKoS, DEFAULT_K1, DEFAULT_K2 } from '../km/forward.ts';
-import { spectraDE2000, reflectanceToXYZ, xyzToLab, deltaE2000, hexToLab } from '../km/cie.ts';
+import { reflectanceFromConcentrations, DEFAULT_K1, DEFAULT_K2 } from '../km/forward.ts';
+import { spectraDE2000, reflectanceToXYZ, xyzToLab, N_BANDS } from '../km/cie.ts';
 import { getPigments, type PigmentData } from '../km/pigments.ts';
-import { N_BANDS } from '../km/cie.ts';
 
 // ---------------------------------------------------------------------------
 // Types matching the legacy solveMix return shape
@@ -57,7 +57,6 @@ function roundTo005(v: number): number {
 }
 
 function xyzToHex(X: number, Y: number, Z: number): string {
-  // XYZ (D65) → linear sRGB → gamma sRGB → hex
   const rLin =  3.2404542 * X - 1.5371385 * Y - 0.4985314 * Z;
   const gLin = -0.9692660 * X + 1.8760108 * Y + 0.0415560 * Z;
   const bLin =  0.0556434 * X - 0.2040259 * Y + 1.0572252 * Z;
@@ -83,108 +82,79 @@ function* combinations(n: number, k: number): Generator<number[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Inline NNLS for small systems (k ≤ 4 variables, arbitrary rows)
-// Enumerates all 2^k active-set masks — cycle-free and exact for k ≤ 4.
+// Per-support grid search
 // ---------------------------------------------------------------------------
 
-function gaussElimSmall(M: number[][], rhs: number[]): number[] | null {
-  const n = M.length;
-  const A: number[][] = M.map((row, i) => [...row, rhs[i]]);
-  for (let col = 0; col < n; col++) {
-    let maxRow = col, maxVal = Math.abs(A[col][col]);
-    for (let row = col + 1; row < n; row++) {
-      const v = Math.abs(A[row][col]);
-      if (v > maxVal) { maxVal = v; maxRow = row; }
-    }
-    if (maxRow !== col) [A[col], A[maxRow]] = [A[maxRow], A[col]];
-    if (Math.abs(A[col][col]) < 1e-14) return null;
-    for (let row = col + 1; row < n; row++) {
-      const f = A[row][col] / A[col][col];
-      for (let j = col; j <= n; j++) A[row][j] -= f * A[col][j];
-    }
-  }
-  const x = new Array<number>(n).fill(0);
-  for (let i = n - 1; i >= 0; i--) {
-    x[i] = A[i][n];
-    for (let j = i + 1; j < n; j++) x[i] -= A[i][j] * x[j];
-    x[i] /= A[i][i];
-  }
-  return x;
+interface SupportResult {
+  c: Float64Array;   // concentrations (sum = 1)
+  deltaE: number;
 }
 
-function nnlsSmall(A: number[][], b: number[]): number[] {
-  const m = A.length;
-  const k = A[0].length;
-
-  // Pre-compute normal-equation parts
-  const AtA: number[][] = Array.from({ length: k }, (_, i) =>
-    Array.from({ length: k }, (_, j) =>
-      A.reduce((s, row) => s + row[i] * row[j], 0)));
-  const Atb: number[] = Array.from({ length: k }, (_, i) =>
-    b.reduce((s, bi, r) => s + A[r][i] * bi, 0));
-
-  let bestObj = Infinity;
-  let bestC: number[] = new Array<number>(k).fill(0);
-
-  for (let mask = 1; mask < (1 << k); mask++) {
-    const active: number[] = [];
-    for (let i = 0; i < k; i++) if (mask & (1 << i)) active.push(i);
-
-    const n = active.length;
-    const M = active.map(i => active.map(j => AtA[i][j]));
-    const rhs = active.map(i => Atb[i]);
-    const z = gaussElimSmall(M, rhs);
-    if (!z || z.some(v => v < -1e-10)) continue;
-
-    const c = new Array<number>(k).fill(0);
-    for (let ii = 0; ii < n; ii++) c[active[ii]] = Math.max(0, z[ii]);
-
-    let obj = 0;
-    for (let r = 0; r < m; r++) {
-      let res = b[r];
-      for (let i = 0; i < k; i++) res -= A[r][i] * c[i];
-      obj += res * res;
-    }
-    if (obj < bestObj) { bestObj = obj; bestC = c; }
-  }
-
-  return bestC;
-}
-
-// ---------------------------------------------------------------------------
-// Per-support NNLS solve
-// ---------------------------------------------------------------------------
-
-function solveSupport(
+function searchSupport(
   support: number[],
-  xTarget: Float64Array,
+  R_target: Float64Array,
+  xyzTarget: [number, number, number],
   pigments: PigmentData[],
-): Float64Array | null {
+  k1: number,
+  k2: number,
+  step: number,
+): SupportResult | null {
   const k = support.length;
-  // A[λ, i] = Kᵢ(λ) − x_target(λ) × Sᵢ(λ)
-  const A_rows: number[][] = [];
-  for (let lam = 0; lam < N_BANDS; lam++) {
-    const row: number[] = [];
-    for (const pi of support) {
-      row.push(pigments[pi].K[lam] - xTarget[lam] * pigments[pi].S[lam]);
+  const Ks = support.map(pi => pigments[pi].K);
+  const Ss = support.map(pi => pigments[pi].S);
+  const N = Math.round(1 / step);
+
+  const [Xt, Yt, Zt] = xyzTarget;
+
+  let bestDistSq = Infinity;
+  let bestC: number[] | null = null;
+
+  const c = new Array<number>(k);
+
+  if (k === 2) {
+    for (let i = 0; i <= N; i++) {
+      c[0] = i / N; c[1] = 1 - c[0];
+      const cf = new Float64Array(c);
+      const R = reflectanceFromConcentrations(cf, Ks, Ss, k1, k2);
+      const [X, Y, Z] = reflectanceToXYZ(R);
+      const d = (X-Xt)**2 + (Y-Yt)**2 + (Z-Zt)**2;
+      if (d < bestDistSq) { bestDistSq = d; bestC = c.slice(); }
     }
-    A_rows.push(row);
+  } else if (k === 3) {
+    for (let i = 0; i <= N; i++) {
+      for (let j = 0; j <= N - i; j++) {
+        c[0] = i / N; c[1] = j / N; c[2] = 1 - c[0] - c[1];
+        const cf = new Float64Array(c);
+        const R = reflectanceFromConcentrations(cf, Ks, Ss, k1, k2);
+        const [X, Y, Z] = reflectanceToXYZ(R);
+        const d = (X-Xt)**2 + (Y-Yt)**2 + (Z-Zt)**2;
+        if (d < bestDistSq) { bestDistSq = d; bestC = c.slice(); }
+      }
+    }
+  } else {
+    // k === 4
+    for (let i = 0; i <= N; i++) {
+      for (let j = 0; j <= N - i; j++) {
+        for (let l = 0; l <= N - i - j; l++) {
+          c[0] = i / N; c[1] = j / N; c[2] = l / N; c[3] = 1 - c[0] - c[1] - c[2];
+          const cf = new Float64Array(c);
+          const R = reflectanceFromConcentrations(cf, Ks, Ss, k1, k2);
+          const [X, Y, Z] = reflectanceToXYZ(R);
+          const d = (X-Xt)**2 + (Y-Yt)**2 + (Z-Zt)**2;
+          if (d < bestDistSq) { bestDistSq = d; bestC = c.slice(); }
+        }
+      }
+    }
   }
 
-  // Normalisation weight: 10 × max |A[λ,i]| ensures Σcᵢ ≈ 1 while clamping c ≥ 0
-  let wMax = 0;
-  for (const row of A_rows) for (const v of row) if (Math.abs(v) > wMax) wMax = Math.abs(v);
-  const w = Math.max(wMax * 10, 1);
+  if (!bestC) return null;
 
-  A_rows.push(new Array<number>(k).fill(w));
-  const b_vec: number[] = new Array<number>(N_BANDS).fill(0).concat([w]);
+  // Compute definitive ΔE2000 for the winner
+  const cf = new Float64Array(bestC);
+  const R_pred = reflectanceFromConcentrations(cf, Ks, Ss, k1, k2);
+  const dE = spectraDE2000(R_pred, R_target);
 
-  const c_raw = nnlsSmall(A_rows, b_vec);
-
-  const sum = c_raw.reduce((a, b) => a + b, 0);
-  if (sum < 1e-10) return null;
-
-  return new Float64Array(c_raw.map(v => v / sum));
+  return { c: cf, deltaE: dE };
 }
 
 // ---------------------------------------------------------------------------
@@ -202,17 +172,9 @@ export function solveMixKM(
   const n = pigments.length;
   if (n < 2) return null;
 
-  // Step 1 & 2: target K/S spectrum
   const R_target = reconstruct(targetHex);
-  const xTarget = new Float64Array(N_BANDS);
-  for (let i = 0; i < N_BANDS; i++) {
-    xTarget[i] = apparentToKoS(R_target[i], k1, k2);
-  }
+  const xyzTarget = reflectanceToXYZ(R_target);
 
-  // Collect K and S arrays by pigment index (aligned with `pigments` array)
-  // (already stored per pigment; we just reference them)
-
-  // Step 3: enumerate supports for k = 2, 3, 4
   const kMax = Math.min(4, n);
 
   interface Candidate {
@@ -221,58 +183,78 @@ export function solveMixKM(
     norm2: number;
     support: number[];
     c: Float64Array;
-    predictedHex: string;
   }
 
   let best: Candidate | null = null;
 
-  for (let k = 2; k <= kMax; k++) {
+  // k=2 and k=3 always; k=4 only when a 4th pigment might help
+  for (let k = 2; k <= Math.min(3, kMax); k++) {
+    const step = k === 2 ? 0.05 : 0.10;
     for (const support of combinations(n, k)) {
-      const c = solveSupport(support, xTarget, pigments);
-      if (!c) continue;
-
-      const R_pred = reflectanceFromConcentrations(
-        c,
-        support.map(pi => pigments[pi].K),
-        support.map(pi => pigments[pi].S),
-        k1, k2,
-      );
-
-      const dE = spectraDE2000(R_pred, R_target);
-
-      // Rank: ΔE ascending, then k ascending, then ‖c‖₂ ascending, then support lex
+      const result = searchSupport(support, R_target, xyzTarget, pigments, k1, k2, step);
+      if (!result) continue;
+      const { c, deltaE: dE } = result;
       const norm2 = c.reduce((acc, v) => acc + v * v, 0);
       if (
-        best === null ||
-        dE < best.deltaE - 1e-6 ||
+        best === null || dE < best.deltaE - 1e-6 ||
         (Math.abs(dE - best.deltaE) < 1e-6 && k < best.k) ||
         (Math.abs(dE - best.deltaE) < 1e-6 && k === best.k && norm2 < best.norm2 - 1e-9)
       ) {
-        const [X, Y, Z] = reflectanceToXYZ(R_pred);
-        best = { deltaE: dE, k, norm2, support, c, predictedHex: xyzToHex(X, Y, Z) };
+        best = { deltaE: dE, k, norm2, support, c };
+      }
+    }
+  }
+
+  // k=4 only when 3-paint solution leaves a meaningful gap (not excellent, not hopeless)
+  if (kMax >= 4 && best !== null && best.deltaE > 2.0 && best.deltaE <= 10.0) {
+    for (const support of combinations(n, 4)) {
+      const result = searchSupport(support, R_target, xyzTarget, pigments, k1, k2, 0.20);
+      if (!result) continue;
+      const { c, deltaE: dE } = result;
+      const norm2 = c.reduce((acc, v) => acc + v * v, 0);
+      if (
+        dE < best.deltaE - 1e-6 ||
+        (Math.abs(dE - best.deltaE) < 1e-6 && norm2 < best.norm2 - 1e-9)
+      ) {
+        best = { deltaE: dE, k: 4, norm2, support, c };
       }
     }
   }
 
   if (!best) return null;
 
-  // Step 5: scale to mL, round to 0.05
-  let volumes = Array.from(best.c).map(f => roundTo005(f * batchSizeMl));
-  const total = Math.round(volumes.reduce((a, b) => a + b, 0) * 1000) / 1000;
-  const target = Math.round(batchSizeMl * 1000) / 1000;
-  const diff = Math.round((target - total) * 1000) / 1000;
+  // Scale to mL, round to 0.05, filter zeros, rebalance
+  const rawVolumes = Array.from(best.c).map(f => roundTo005(f * batchSizeMl));
+
+  const kept = best.support
+    .map((pi, i) => ({ pi, vol: rawVolumes[i] }))
+    .filter(e => e.vol > 0);
+
+  if (kept.length === 0) return null;
+
+  const total = Math.round(kept.reduce((s, e) => s + e.vol, 0) * 1000) / 1000;
+  const targetVol = Math.round(batchSizeMl * 1000) / 1000;
+  const diff = Math.round((targetVol - total) * 1000) / 1000;
   if (Math.abs(diff) > 0.001) {
-    const maxIdx = volumes.reduce((mi, v, i) => v > volumes[mi] ? i : mi, 0);
-    volumes[maxIdx] = Math.round((volumes[maxIdx] + diff) * 1000) / 1000;
+    const maxIdx = kept.reduce((mi, e, i) => e.vol > kept[mi].vol ? i : mi, 0);
+    kept[maxIdx].vol = Math.round((kept[maxIdx].vol + diff) * 1000) / 1000;
   }
 
+  // Recompute predicted colour from final (rounded) fractions
+  const finalFracs = new Float64Array(kept.map(e => e.vol / batchSizeMl));
+  const finalKs = kept.map(e => pigments[e.pi].K);
+  const finalSs = kept.map(e => pigments[e.pi].S);
+  const R_final = reflectanceFromConcentrations(finalFracs, finalKs, finalSs, k1, k2);
+  const finalDeltaE = spectraDE2000(R_final, R_target);
+  const [Xf, Yf, Zf] = reflectanceToXYZ(R_final);
+
   return {
-    components: best.support.map((pi, i) => ({
-      paint: pigments[pi].paint as RecipeComponent['paint'],
-      volumeMl: volumes[i],
+    components: kept.map(e => ({
+      paint: pigments[e.pi].paint as RecipeComponent['paint'],
+      volumeMl: e.vol,
     })),
-    predictedHex: best.predictedHex,
-    deltaE: Math.round(best.deltaE * 10) / 10,
-    accuracy: accuracyLabel(best.deltaE),
+    predictedHex: xyzToHex(Xf, Yf, Zf),
+    deltaE: Math.round(finalDeltaE * 10) / 10,
+    accuracy: accuracyLabel(finalDeltaE),
   };
 }
