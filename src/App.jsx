@@ -12,7 +12,7 @@ import PaintInventory from './components/PaintInventory';
 import CalibrationFlow from './components/CalibrationFlow';
 import ProgressionCard from './components/ProgressionCard';
 
-const CORE_IDS = basePaints.filter(p => !p.extended).map(p => p.id);
+const CORE_IDS = basePaints.map(p => p.id);
 const LS_RECIPES = 'paintmix_recipes';
 const LS_INVENTORY = 'paintmix_inventory';
 const LS_CALIBRATION = 'paintmix_calibration';
@@ -37,6 +37,7 @@ export default function App() {
   const [technique, setTechnique] = useState('layer');
   const [activePaintIds, setActivePaintIds] = useState(() => loadLS(LS_INVENTORY, CORE_IDS));
   const [recipe, setRecipe] = useState(null);
+  const [solveError, setSolveError] = useState(null);
   const [solving, setSolving] = useState(false);
   const [savedRecipes, setSavedRecipes] = useState(() => loadLS(LS_RECIPES, []));
   const [calibration, setCalibration] = useState(() => loadLS(LS_CALIBRATION, {}));
@@ -49,8 +50,10 @@ export default function App() {
   useEffect(() => { localStorage.setItem(LS_INVENTORY, JSON.stringify(activePaintIds)); }, [activePaintIds]);
   useEffect(() => { localStorage.setItem(LS_CALIBRATION, JSON.stringify(calibration)); }, [calibration]);
 
-  const handleSolve = useCallback(() => {
+  const handleSolve = useCallback(async () => {
     setSolving(true);
+    setSolveError(null);
+
     const activePaints = basePaints.filter(p => activePaintIds.includes(p.id));
 
     // Wet-to-dry correction: wet reference appears ~7 L* darker than dry result
@@ -62,21 +65,19 @@ export default function App() {
     }
 
     const solvedBatch = batchSizeMl;
+    const targetLab = chroma(solveTargetHex).lab();
+    const clamp = l => Math.max(5, Math.min(95, l));
+    const shadowLab    = shiftLabChroma([clamp(targetLab[0] - 15), targetLab[1], targetLab[2]], +5);
+    const highlightLab = shiftLabChroma([clamp(targetLab[0] + 15), targetLab[1], targetLab[2]], -5);
+    const shadowHex    = chroma.lab(...shadowLab).hex();
+    const highlightHex = chroma.lab(...highlightLab).hex();
 
-    setTimeout(() => {
-      // Always compute all three — single color shows midtone, progression shows all three
-      const targetLab = chroma(solveTargetHex).lab();
-      const clamp = l => Math.max(5, Math.min(95, l));
-      const shadowLab    = shiftLabChroma([clamp(targetLab[0] - 15), targetLab[1], targetLab[2]], +5);
-      const highlightLab = shiftLabChroma([clamp(targetLab[0] + 15), targetLab[1], targetLab[2]], -5);
-      const shadowHex    = chroma.lab(...shadowLab).hex();
-      const highlightHex = chroma.lab(...highlightLab).hex();
-
-      const midtoneRecipe   = solveMix(solveTargetHex, activePaints, solvedBatch);
-      const shadowRecipe    = solveMix(shadowHex,       activePaints, solvedBatch);
-      const highlightRecipe = solveMix(highlightHex,    activePaints, solvedBatch);
-
-      if (midtoneRecipe) midtoneRecipe.batchSizeMl = solvedBatch;
+    try {
+      const [midtoneRecipe, shadowRecipe, highlightRecipe] = await Promise.all([
+        solveMix(solveTargetHex, activePaints, solvedBatch),
+        solveMix(shadowHex,      activePaints, solvedBatch),
+        solveMix(highlightHex,   activePaints, solvedBatch),
+      ]);
 
       setRecipe(midtoneRecipe);
       setProgression({
@@ -85,8 +86,12 @@ export default function App() {
         highlight:   { recipe: highlightRecipe, targetHex: highlightHex },
         batchSizeMl: solvedBatch,
       });
+    } catch {
+      setSolveError('Unable to connect to paint engine. Check your connection.');
+      setRecipe(null);
+    } finally {
       setSolving(false);
-    }, 0);
+    }
   }, [targetHex, activePaintIds, batchSizeMl, referenceIsDry]);
 
   const handleSaveRecipe = ({ name, recipe: r, technique: t, batchSizeMl: b }) => {
@@ -240,6 +245,8 @@ export default function App() {
             ) : (
               <RecipeCard
                 recipe={recipe}
+                error={solveError}
+                onRetry={handleSolve}
                 targetHex={targetHex}
                 technique={technique}
                 batchSizeMl={batchSizeMl}

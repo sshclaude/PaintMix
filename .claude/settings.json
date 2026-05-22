@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit*)",
+            "command": "cmd=$(jq -r '.tool_input.command'); echo \"$cmd\" | grep -q 'git commit' && npm --prefix /home/user/PaintMix version patch --no-git-tag-version 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}

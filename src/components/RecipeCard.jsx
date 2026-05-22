@@ -121,7 +121,7 @@ function printCard({ recipe, activeBatch, targetHex, tech, thinnerMl, totalMl, r
   setTimeout(() => win.print(), 250);
 }
 
-export default function RecipeCard({ recipe, targetHex, technique, batchSizeMl, hobbyPaints, onSave }) {
+export default function RecipeCard({ recipe, error, onRetry, targetHex, technique, batchSizeMl, hobbyPaints, onSave }) {
   const [copied, setCopied] = useState(false);
   const [saveName, setSaveName] = useState('');
   const [showSaveInput, setShowSaveInput] = useState(false);
@@ -193,6 +193,23 @@ export default function RecipeCard({ recipe, targetHex, technique, batchSizeMl, 
     const rehydration = computeRehydration(activeBatch, wellId, humidityId, customArea);
     printCard({ recipe: activeRecipe, activeBatch, targetHex, tech, thinnerMl, totalMl, rehydration });
   };
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 rounded-xl border border-dashed border-[#8B2020] text-[#E87070] gap-4 px-6">
+        <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+        </svg>
+        <p className="text-sm text-center">{error}</p>
+        <button
+          onClick={onRetry}
+          className="px-4 py-2 rounded bg-[#C8862A] text-white text-sm font-medium hover:bg-[#E09D3A] transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   if (!recipe) {
     return (
