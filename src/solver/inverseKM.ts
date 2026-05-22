@@ -434,7 +434,15 @@ export function solveMixKM(
     }
   }
 
-  // Diagnostic output
+  // Always log the winner so DevTools shows solver progress for every solve.
+  // Extra top-10 detail only for the known-hard vivid-green test case.
+  if (best) {
+    const winnerName = best.support.map(pi => pigments[pi].paint.id).join('+');
+    console.log(
+      `[PaintMix] ${targetHex} → ΔE=${best.deltaE.toFixed(2)} k=${best.k}` +
+      ` [${winnerName}] fracs=[${Array.from(best.c).map(v => v.toFixed(3)).join(', ')}]`,
+    );
+  }
   if (diag && allCandidates.length > 0) {
     console.log(`[PaintMix diag] #53de21: ${allCandidates.length} total candidates`);
     const top10 = [...allCandidates].sort((a, b) => a.deltaE - b.deltaE).slice(0, 10);
@@ -446,12 +454,6 @@ export function solveMixKM(
         ` fracs=[${Array.from(c).map(v => v.toFixed(3)).join(', ')}]`,
       );
     }
-    const winner = best!;
-    const winnerName = winner.support.map(pi => pigments[pi].paint.id).join('+');
-    console.log(
-      `[PaintMix diag] Winner: ΔE=${winner.deltaE.toFixed(2)} k=${winner.k} [${winnerName}]` +
-      ` fracs=[${Array.from(winner.c).map(v => v.toFixed(3)).join(', ')}]`,
-    );
   }
 
   if (!best) return null;
